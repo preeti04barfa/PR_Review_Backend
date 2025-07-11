@@ -70,14 +70,17 @@ export class AuthController {
             data: users,
         };
     }
-      @Get('all-repos')
-  async getAllRepos() {
-    const repos = await this.authService.getAllUsersRepos();
+
+      @Get('repos-prs')
+  @UseGuards(AuthGuard('jwt'))
+  async getReposAndPRs(@Request() req) {
+    const user = req.user;
+    const githubId = user.githubId;
+
+    const reposAndPRs = await this.authService.getReposAndPRs(githubId);
     return {
       status: 'success',
-      total: repos.length,
-      data: repos,
+      data: reposAndPRs,
     };
   }
-
 }

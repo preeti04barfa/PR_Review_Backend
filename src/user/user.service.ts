@@ -29,7 +29,4 @@ export class UserService {
   async findAll(): Promise<UserDocument[]> {
   return this.userModel.find().sort({ createdAt: -1 });
 }
-
-
-
 }

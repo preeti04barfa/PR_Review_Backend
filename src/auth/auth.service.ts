@@ -74,36 +74,52 @@ export class AuthService {
   async getAllUsers(): Promise<UserDocument[]> {
   return this.userService.findAll();
 }
-async getAllUsersRepos(): Promise<any[]> {
-    const users = await this.userService.findAll(); 
-    const allRepos = [];
 
-    for (const user of users) {
-      const gitToken = user.gitToken;
-
-      if (!gitToken) continue;
-
-      try {
-        const response = await axios.get('https://api.github.com/user/repos?per_page=100', {
-          headers: {
-            Authorization: `token ${gitToken}`,
-          },
-        });
-
-        const repos = response.data.map(repo => ({
-          user: user.githubId,
-          name: repo.name,
-          full_name: repo.full_name,
-          private: repo.private,
-          url: repo.html_url,
-        }));
-
-        allRepos.push(...repos);
-      } catch (error) {
-        console.error(`Error fetching repos for user ${user.githubId}:`, error.response?.data || error.message);
-      }
+async getUserRepos(githubId: string) {
+    const user = await this.userService.findByGithubId(githubId);
+    if (!user || !user.gitToken) {
+      throw new UnauthorizedException('GitHub token not found');
     }
 
-    return allRepos;
+    const gitToken = user.gitToken;
+
+    const reposResponse = await axios.get('https://api.github.com/user/repos?per_page=100', {
+      headers: { Authorization: `token ${gitToken}` },
+    });
+
+    return reposResponse.data;
   }
+
+  async getRepoPRs(owner: string, repoName: string, gitToken: string) {
+    const prUrl = `https://api.github.com/repos/${owner}/${repoName}/pulls?state=all&per_page=100`;
+    const prResponse = await axios.get(prUrl, {
+      headers: { Authorization: `token ${gitToken}` },
+    });
+    return prResponse.data; 
+  }
+
+
+  async getReposAndPRs(githubId: string) {
+    const user = await this.userService.findByGithubId(githubId);
+    if (!user || !user.gitToken) {
+      throw new UnauthorizedException('GitHub token not found');
+    }
+
+    const gitToken = user.gitToken;
+
+    const repos = await this.getUserRepos(githubId);
+
+
+   const reposWithPRs = await Promise.all(
+  repos.map(async (repo) => {
+    const prs = await this.getRepoPRs(repo.owner.login, repo.name, gitToken);
+    return prs; // return PR array only
+  }),
+);
+const allPRs = reposWithPRs.flat();
+
+return allPRs; 
+  }
+
+
 }
