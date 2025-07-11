@@ -91,12 +91,38 @@ async getUserRepos(githubId: string) {
   }
 
   async getRepoPRs(owner: string, repoName: string, gitToken: string) {
-    const prUrl = `https://api.github.com/repos/${owner}/${repoName}/pulls?state=all&per_page=100`;
-    const prResponse = await axios.get(prUrl, {
-      headers: { Authorization: `token ${gitToken}` },
-    });
-    return prResponse.data; 
-  }
+  const prUrl = `https://api.github.com/repos/${owner}/${repoName}/pulls?state=all&per_page=100`;
+  const prResponse = await axios.get(prUrl, {
+    headers: { Authorization: `token ${gitToken}` },
+  });
+
+  const prs = prResponse.data;
+
+  const prsWithDiffs = await Promise.all(
+    prs.map(async (pr) => {
+      try {
+        const diffUrl = `https://api.github.com/repos/${owner}/${repoName}/pulls/${pr.number}/files`;
+        const diffResponse = await axios.get(diffUrl, {
+          headers: { Authorization: `token ${gitToken}` },
+        });
+
+        return {
+          ...pr,
+          prDiff: diffResponse.data, 
+        };
+      } catch (error) {
+        console.error(`Failed to fetch diff for PR #${pr.number}`, error);
+        return {
+          ...pr,
+          prDiff: [],
+        };
+      }
+    })
+  );
+
+  return prsWithDiffs;
+}
+
 
 
   async getReposAndPRs(githubId: string) {
