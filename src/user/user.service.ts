@@ -15,7 +15,7 @@ export class UserService {
 
   async create(userData: Partial<User>): Promise<UserDocument> {
     const createdUser = new this.userModel(userData);
-    return createdUser.save(); // <- this returns UserDocument
+    return createdUser.save(); 
   }
 
   async findById(id: string): Promise<UserDocument | null> {
@@ -25,4 +25,11 @@ export class UserService {
   async updateGitToken(githubId: string, gitToken: string): Promise<UserDocument | null> {
     return this.userModel.findOneAndUpdate({ githubId }, { gitToken }, { new: true }).exec();
   }
+
+  async findAll(): Promise<UserDocument[]> {
+  return this.userModel.find().sort({ createdAt: -1 });
+}
+
+
+
 }

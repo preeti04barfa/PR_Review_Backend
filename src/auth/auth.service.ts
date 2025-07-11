@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { UserService } from "../user/user.service";
 import { UserDocument } from "../user/schemas/user.schema";
+import axios from 'axios';
 
 @Injectable()
 export class AuthService {
@@ -42,7 +43,6 @@ export class AuthService {
     if (!userId) {
       throw new UnauthorizedException("User ID is missing");
     }
-console.log(userId,"userId");
 
     const payload = {
       sub: userId,
@@ -69,5 +69,41 @@ console.log(userId,"userId");
       throw new UnauthorizedException("User not found");
     }
     return user;
+  }
+
+  async getAllUsers(): Promise<UserDocument[]> {
+  return this.userService.findAll();
+}
+async getAllUsersRepos(): Promise<any[]> {
+    const users = await this.userService.findAll(); 
+    const allRepos = [];
+
+    for (const user of users) {
+      const gitToken = user.gitToken;
+
+      if (!gitToken) continue;
+
+      try {
+        const response = await axios.get('https://api.github.com/user/repos?per_page=100', {
+          headers: {
+            Authorization: `token ${gitToken}`,
+          },
+        });
+
+        const repos = response.data.map(repo => ({
+          user: user.githubId,
+          name: repo.name,
+          full_name: repo.full_name,
+          private: repo.private,
+          url: repo.html_url,
+        }));
+
+        allRepos.push(...repos);
+      } catch (error) {
+        console.error(`Error fetching repos for user ${user.githubId}:`, error.response?.data || error.message);
+      }
+    }
+
+    return allRepos;
   }
 }

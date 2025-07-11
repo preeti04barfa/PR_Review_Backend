@@ -4,7 +4,7 @@ import { HydratedDocument } from 'mongoose';
 // 👇 Use HydratedDocument instead of Document for better type support
 export type UserDocument = HydratedDocument<User>;
 
-@Schema()
+@Schema({ timestamps: true }) 
 export class User {
   @Prop({ required: true })
   githubId: string;

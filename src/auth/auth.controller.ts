@@ -59,4 +59,25 @@ export class AuthController {
         }
 
     }
+
+    @Get("users")
+    @UseGuards(AuthGuard("jwt"))
+    async getAllUsers(@Request() req: AuthenticatedRequest) {
+        const users = await this.authService.getAllUsers();
+        return {
+            status: 'success',
+            message: 'Fetched all users successfully',
+            data: users,
+        };
+    }
+      @Get('all-repos')
+  async getAllRepos() {
+    const repos = await this.authService.getAllUsersRepos();
+    return {
+      status: 'success',
+      total: repos.length,
+      data: repos,
+    };
+  }
+
 }
