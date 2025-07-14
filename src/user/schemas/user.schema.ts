@@ -1,7 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 
-// 👇 Use HydratedDocument instead of Document for better type support
 export type UserDocument = HydratedDocument<User>;
 
 @Schema({ timestamps: true }) 
