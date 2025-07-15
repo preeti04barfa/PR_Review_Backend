@@ -1,13 +1,17 @@
-import { Controller, Get, Post, UseGuards, Request, Response, Body } from '@nestjs/common';
+import { Controller, Header,Query, Get, Post, UseGuards, Request, Response, Body } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { Response as ExpressResponse } from 'express';
+import { Response as ExpressResponse, Request as ExpressRequest } from 'express';
 import { AuthService } from './auth.service';
 import { UserDocument } from '../user/schemas/user.schema';
-import { log } from 'node:console';
 
-interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest extends ExpressRequest {
   user: UserDocument;
 }
+
+interface RawRequest extends ExpressRequest {
+  rawBody: Buffer;
+}
+
 
 @Controller('auth')
 export class AuthController {
@@ -69,25 +73,42 @@ export class AuthController {
     };
   }
 
-  @Get('repos-prs')
-  @UseGuards(AuthGuard('jwt'))
-  async getReposAndPRs(@Request() req: AuthenticatedRequest) {
-    const user = req.user;
-    const githubId = user.githubId;
+@Get('repos-prs')
+@UseGuards(AuthGuard('jwt'))
+async getReposAndPRs(@Request() req: AuthenticatedRequest, @Query('forceRefresh') forceRefresh: string) {
+  const user = req.user;
+  const githubId = user.githubId;
+  const refresh = forceRefresh === 'true';
 
-    const reposAndPRs = await this.authService.getReposAndPRs(githubId);
-    console.log(reposAndPRs,"reposAndPRs");
-    
-    return {
-      status: 'success',
-      data: reposAndPRs,
-    };
-  }
+  const reposAndPRs = await this.authService.getReposAndPRs(githubId, refresh);
+  return {
+    status: 'success',
+    data: reposAndPRs,
+  };
+}
 
-  @Post('webhook')
-  async handleWebhook(@Body() payload: any, @Request() req: Request) {
+@Post('webhook')
+  async handleWebhook(@Request() req: RawRequest) {
+    const payload = req.body;
+    const rawBody = req.rawBody;
+
+    if (!rawBody) {
+      throw new Error('rawBody is missing. Signature cannot be verified.');
+    }
+
     const event = req.headers['x-github-event'] as string;
     const signature = req.headers['x-hub-signature-256'] as string;
-    return this.authService.handleGithubWebhook(payload, event, signature);
+
+    return this.authService.handleGithubWebhook(payload, event, signature, rawBody);
   }
+
+  @Get('developers-summary')
+async getDevelopersSummary() {
+  const getDeveloperData = await this.authService.getAllDevelopersSummary();
+    return {
+    status: 'success',
+    data: getDeveloperData,
+  };
+}
+
 }

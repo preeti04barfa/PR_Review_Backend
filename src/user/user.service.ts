@@ -39,12 +39,15 @@ export class UserService {
   }
 
   async findPRsByGithubId(githubId: string): Promise<PRDocument[]> {
-    return this.prModel.find({ githubId }).exec();
+    return this.prModel.find({ githubId }).sort({ 'head.repo.pushed_at': -1 }).exec();
   }
 
   async updatePR(id: number, githubId: string, updateData: Partial<PullRequest>): Promise<PRDocument | null> {
     return this.prModel
       .findOneAndUpdate({ id, githubId }, updateData, { new: true, upsert: true })
       .exec();
+  }
+   async findAllPRs(): Promise<PRDocument[]> {
+    return this.prModel.find().sort({ createdAt: -1 }).exec();
   }
 }

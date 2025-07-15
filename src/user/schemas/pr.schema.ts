@@ -1,3 +1,4 @@
+// src/user/schemas/pr.schema.ts
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 
@@ -23,18 +24,37 @@ export class PullRequest {
   @Prop({ type: [Object] })
   prDiff?: Array<object>;
 
-  @Prop({ type: Object })
-  head?: Object;
+  @Prop({
+    type: {
+      repo: {
+        pushed_at: String,
+        name: String,
+        full_name: String,
+        owner: { login: String },
+        private: Boolean,
+      },
+    },
+  })
+  head?: {
+    repo?: {
+      pushed_at?: string;
+      name?: string;
+      full_name?: string;
+      owner?: { login?: string };
+      private?: boolean;
+    };
+  };
 
-  @Prop({ type: Object })
-  user?: Object;
+  @Prop({ type: { login: String } })
+  user?: { login?: string };
 
-  @Prop({ default: 'pending' }) 
+  @Prop({ default: 'pending' })
   reviewedStatus: string;
 
   @Prop({ required: true })
-  githubId: string; 
+  githubId: string;
 }
 
-
 export const PullRequestSchema = SchemaFactory.createForClass(PullRequest);
+
+PullRequestSchema.index({ githubId: 1, 'head.repo.pushed_at': -1 });
