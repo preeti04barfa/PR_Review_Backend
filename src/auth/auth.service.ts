@@ -5,6 +5,7 @@ import { UserService } from '../user/user.service';
 import { UserDocument } from '../user/schemas/user.schema';
 import axios from 'axios';
 import { createHmac } from 'crypto';
+import { PRReviewStatus } from 'src/user/dto/user.dto';
 
 @Injectable()
 export class AuthService {
@@ -172,7 +173,7 @@ export class AuthService {
             }
             : undefined,
           user: pr.user ? { login: pr.user.login } : undefined,
-          reviewedStatus: 'pending',
+          reviewedStatus: PRReviewStatus.PENDING,
           githubId,
         };
         return this.userService.updatePR(pr.id, githubId, prData);
@@ -231,7 +232,7 @@ export class AuthService {
           }
           : undefined,
         user: pr.user ? { login: pr.user.login } : undefined,
-        reviewedStatus: 'pending',
+        reviewedStatus: PRReviewStatus.PENDING,
         githubId,
       };
 

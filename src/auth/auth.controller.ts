@@ -4,9 +4,10 @@ import { Response as ExpressResponse } from "express"
 import { AuthService } from "./auth.service"
 import { UserDocument } from "../user/schemas/user.schema"
 import { UserService } from "src/user/user.service"
-import { getReviewResult } from "src/utils/redis.utils"
+import { getReviewResult, setReviewResult } from "src/utils/redis.utils"
 import { ReviewQueue } from "src/config/Bullmq.config"
 import { log } from 'node:console';
+import { PRReviewStatus } from "src/user/dto/user.dto"
 
 interface AuthenticatedRequest extends Request {
   user: UserDocument;
@@ -17,6 +18,7 @@ export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly userService: UserService,
+        
     ) { }
 
   @Get('github')
@@ -116,6 +118,8 @@ export class AuthController {
       @Request() req,
       @Query('repo') repo: string,
       @Query('pr') pr: number,
+      @Query('prId') prId: string,
+      @Query('isRetry') isRetry: string,
     ) {
       const user = req.user;
       const githubId = user.githubId;
@@ -129,13 +133,42 @@ export class AuthController {
           data: cached,
         };
       }
+      const prDetail = await this.userService.findReviewInDb(prId);
+      if((prDetail?.reviewedStatus == PRReviewStatus.COMPLETED || prDetail?.reviewedStatus == PRReviewStatus.FAILED) && isRetry === 'false'){
+        let isCompleted = prDetail?.reviewedStatus == PRReviewStatus.COMPLETED;
+        if(isCompleted){
+          await setReviewResult(redisKey, prDetail?.reviewData);
+        }
+        return {
+          status: isCompleted ? 'success': 'failed',
+          message: isCompleted ? 'Already reviewed' : 'Pr Review Failed',
+          data: isCompleted ? prDetail?.reviewData : null,
+        };
+      }
+      // if(prDetail?.reviewedStatus == PRReviewStatus.COMPLETED){
+      //   await setReviewResult(redisKey, prDetail?.reviewData);
+      //   return {
+      //     status: 'success',
+      //     message: 'Already reviewed',
+      //     data: prDetail?.reviewData,
+      //   };
+      // }
       const addData = {
         githubId,
         repo,
         pr,
+        prId
       }
+      await this.userService.updateReviewStatus(prId, PRReviewStatus.IN_PROGRESS)
       // Add job to queue
-      await ReviewQueue.add('review-task', addData, { attempts: 3 });
+      await ReviewQueue.add('review-task', 
+        addData,       
+      {
+        jobId: redisKey,
+        attempts: 3,
+        removeOnComplete: true,
+        removeOnFail: true,
+      });
 
       return {
         status: 'queued',

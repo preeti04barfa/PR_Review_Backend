@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
+import { PRReviewStatus } from '../dto/user.dto';
 
 export type PRDocument = HydratedDocument<PullRequest>;
 
@@ -29,11 +30,14 @@ export class PullRequest {
   @Prop({ type: Object })
   user?: Object;
 
-  @Prop({ default: 'pending' }) 
-  reviewedStatus: string;
+  @Prop({ enum: PRReviewStatus, default: PRReviewStatus.PENDING })
+  reviewedStatus?: PRReviewStatus;
 
   @Prop({ required: true })
-  githubId: string; 
+  githubId: string;
+
+  @Prop({ type: Object })
+  reviewData?: Object;
 }
 
 

@@ -142,4 +142,16 @@ export class UserService {
       .findOneAndUpdate({ id, githubId }, updateData, { new: true, upsert: true })
       .exec();
   }
+
+  async findReviewInDb(prId: string): Promise<any> {
+    const prDetails = await this.prModel.findById(prId)
+    return prDetails
+  }
+  async updateReviewStatus(prId: string, status: string): Promise<void> {
+        await this.prModel.findOneAndUpdate(
+          { _id: prId },
+          { reviewedStatus: status },
+        );
+  }
+  
 }
