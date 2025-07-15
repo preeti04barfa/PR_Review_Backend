@@ -4,12 +4,15 @@ import { Model } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
+// src/user/user.service.ts
+import { PullRequest, PRDocument } from './schemas/pr.schema';
 
 @Injectable()
 export class UserService {
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly configService: ConfigService,
+    @InjectModel(PullRequest.name) private readonly prModel: Model<PRDocument>,
   ) {}
 
   async findByGithubId(githubId: string): Promise<UserDocument | null> {
@@ -30,7 +33,7 @@ export class UserService {
   }
 
   async findAll(): Promise<UserDocument[]> {
-  return this.userModel.find().sort({ createdAt: -1 });
+  return this.userModel.find().sort({ createdAt: -1 }).exec();
 }
 
   async geminiReviewPR(data: string) {
@@ -124,5 +127,19 @@ export class UserService {
       return reviewResp;
     }
     throw new Error("Failed to review...")
+  }
+  async savePR(prData: Partial<PullRequest>): Promise<PRDocument> {
+    const createdPR = new this.prModel(prData);
+    return createdPR.save();
+  }
+  
+  async findPRsByGithubId(githubId: string): Promise<PRDocument[]> {
+    return this.prModel.find({ githubId }).exec();
+  }
+  
+  async updatePR(id: number, githubId: string, updateData: Partial<PullRequest>): Promise<PRDocument | null> {
+    return this.prModel
+      .findOneAndUpdate({ id, githubId }, updateData, { new: true, upsert: true })
+      .exec();
   }
 }
