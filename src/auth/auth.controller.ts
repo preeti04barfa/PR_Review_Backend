@@ -1,8 +1,11 @@
-import { Controller, Get, UseGuards, Request, Response } from "@nestjs/common"
+import { Controller, Get, UseGuards, Request, Response, Query } from "@nestjs/common"
 import { AuthGuard } from "@nestjs/passport"
 import { Response as ExpressResponse } from "express"
 import { AuthService } from "./auth.service"
 import { UserDocument } from "../user/schemas/user.schema"
+import { UserService } from "src/user/user.service"
+import { getReviewResult } from "src/utils/redis.utils"
+import { ReviewQueue } from "src/config/Bullmq.config"
 
 interface AuthenticatedRequest extends Request {
     user: UserDocument
@@ -10,7 +13,10 @@ interface AuthenticatedRequest extends Request {
 
 @Controller("auth")
 export class AuthController {
-    constructor(private readonly authService: AuthService) { }
+    constructor(
+        private readonly authService: AuthService,
+        private readonly userService: UserService,
+    ) { }
 
     @Get("github")
     @UseGuards(AuthGuard("github"))
@@ -83,4 +89,57 @@ export class AuthController {
       data: reposAndPRs,
     };
   }
+
+    @Get('code-review')
+    @UseGuards(AuthGuard('jwt'))
+    async codeReview(
+      @Request() req,
+      @Query('repo') repo: string,
+      @Query('pr') pr: number,
+    ) {
+      const user = req.user;
+      const githubId = user.githubId;
+      const reposAndPRs = await this.userService.getCodeReview(
+        githubId,
+        repo,
+        pr,
+      );
+      return {
+        status: 'success',
+        data: reposAndPRs,
+      };
+    }
+
+    @Get('review-pr')
+    @UseGuards(AuthGuard('jwt'))
+    async enqueueCodeReviewJob(
+      @Request() req,
+      @Query('repo') repo: string,
+      @Query('pr') pr: number,
+    ) {
+      const user = req.user;
+      const githubId = user.githubId;
+      const redisKey = `review:${githubId}:${repo}:${pr}`;
+
+      const cached = await getReviewResult(redisKey);
+      if (cached) {
+        return {
+          status: 'success',
+          message: 'Already reviewed',
+          data: cached,
+        };
+      }
+      const addData = {
+        githubId,
+        repo,
+        pr,
+      }
+      // Add job to queue
+      await ReviewQueue.add('review-task', addData, { attempts: 3 });
+
+      return {
+        status: 'queued',
+        message: 'Review is being processed.',
+      };
+    }
 }
