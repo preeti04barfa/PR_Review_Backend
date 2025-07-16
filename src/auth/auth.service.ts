@@ -125,15 +125,15 @@ export class AuthService {
     return prsWithDiffs;
   }
 
-  async getReposAndPRs(githubId: string) {
-    const user = await this.userService.findByGithubId(githubId);
-    if (!user || !user.gitToken) {
-      throw new UnauthorizedException('GitHub token not found');
-    }
+async getReposAndPRs(githubId: string, forceRefresh: boolean = false) {
+  const user = await this.userService.findByGithubId(githubId);
+  if (!user || !user.gitToken) {
+    throw new UnauthorizedException('GitHub token not found');
+  }
 
-    const gitToken = user.gitToken;
+  const gitToken = user.gitToken;
 
-    // Check database first
+  if (!forceRefresh) {
     const cachedPRs = await this.userService.findPRsByGithubId(githubId);
     if (cachedPRs.length > 0) {
       return cachedPRs;
@@ -183,65 +183,144 @@ export class AuthService {
     return formattedPRs;
   }
 
-  async handleGithubWebhook(payload: any, event: string, signature: string) {
-    const webhookSecret = this.configService.get<string>('WEBHOOK_SECRET');
-    console.log(webhookSecret, "webhookSecret");
+  const repos = await this.getAllUserRepos(githubId, gitToken);
+  const reposWithPRs = await Promise.all(
+    repos.map(async (repo) => {
+      const prs = await this.getRepoPRs(repo.owner.login, repo.name, gitToken);
+      return prs;
+    }),
+  );
 
-    if (!webhookSecret) {
-      throw new UnauthorizedException('Webhook secret not configured');
-    }
-    console.log(JSON.stringify(payload), "SON.stringify(payload)");
+  const allPRs = reposWithPRs.flat();
 
-    const computedSig = `sha256=${createHmac('sha256', webhookSecret)
-      .update(JSON.stringify(payload))
-      .digest('hex')}`;
-
-    if (signature !== computedSig) {
-      throw new UnauthorizedException('Invalid webhook signature');
-    }
-
-    if (event === 'pull_request') {
-      const pr = payload.pull_request;
-      const githubId = await this.getGithubIdFromRepo(payload.repository);
-      if (!githubId) {
-        console.error('No userresearching user for repository');
-        return { status: 'ignored', message: 'No user associated with repository' };
-      }
-
+  const formattedPRs = await Promise.all(
+    allPRs.map(async (pr) => {
       const prData = {
         id: pr.id,
-        title: pr.title,
-        body: pr.body,
-        state: pr.state,
+        title: pr.title || 'Untitled PR',
+        body: pr.body || '',
+        state: pr.state || 'unknown',
         number: pr.number,
-        prDiff: await this.fetchPRDiff(
-          pr.repository.owner.login,
-          pr.repository.name,
-          pr.number,
-          githubId,
-        ),
+        prDiff: pr.prDiff || [],
         head: pr.head
           ? {
-            repo: pr.head.repo
-              ? {
-                pushed_at: pr.head.repo.pushed_at,
-                name: pr.head.repo.name,
-                owner: pr.head.repo.owner ? { login: pr.head.repo.owner.login } : undefined,
-              }
-              : undefined,
-          }
+              repo: pr.head.repo
+                ? {
+                    pushed_at: pr.head.repo.pushed_at,
+                    name: pr.head.repo.name,
+                    full_name: pr.head.repo.full_name,
+                    owner: pr.head.repo.owner ? { login: pr.head.repo.owner.login } : undefined,
+                  }
+                : undefined,
+            }
           : undefined,
         user: pr.user ? { login: pr.user.login } : undefined,
         reviewedStatus: PRReviewStatus.PENDING,
         githubId,
       };
+      return this.userService.updatePR(pr.id, githubId, prData);
+    }),
+  );
 
-      await this.userService.updatePR(pr.id, githubId, prData);
-      return { status: 'success', message: 'PR processed and saved' };
+  return formattedPRs.sort((a, b) => {
+    const dateA = a.head?.repo?.pushed_at ? new Date(a.head.repo.pushed_at).getTime() : 0;
+    const dateB = b.head?.repo?.pushed_at ? new Date(b.head.repo.pushed_at).getTime() : 0;
+    return dateB - dateA;
+  });
+}
+
+async getAllUserRepos(githubId: string, gitToken: string) {
+  const repos = [];
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    try {
+      const reposResponse = await axios.get(
+        `https://api.github.com/user/repos?per_page=${perPage}&page=${page}`,
+        {
+          headers: { Authorization: `token ${gitToken}` },
+        },
+      );
+
+      const fetchedRepos = reposResponse.data;
+      repos.push(...fetchedRepos);
+
+      if (fetchedRepos.length < perPage) {
+        break;
+      }
+      page++;
+    } catch (error) {
+      console.error('Error fetching repositories:', error.response?.data || error.message);
+      throw new UnauthorizedException('Failed to fetch repositories');
+    }
+  }
+
+  return repos;
+}
+
+async handleGithubWebhook(payload: any, event: string, signature: string, rawBody: Buffer) {
+  const webhookSecret = this.configService.get<string>('WEBHOOK_SECRET');
+  if (!webhookSecret) {
+    throw new UnauthorizedException('Webhook secret not configured');
+  }
+
+  const computedSig = `sha256=${createHmac('sha256', webhookSecret)
+    .update(rawBody)
+    .digest('hex')}`;
+
+  console.log('Computed signature:', computedSig);
+  console.log('Received signature:', signature);
+
+  if (signature !== computedSig) {
+    throw new UnauthorizedException('Invalid webhook signature');
+  }
+
+  if (event === 'pull_request' && ['opened', 'edited', 'closed', 'reopened'].includes(payload.action)) {
+    const pr = payload.pull_request;
+    const githubId = await this.getGithubIdFromRepo(payload.repository);
+
+    if (!githubId) {
+      console.error('No user found for repository:', payload.repository?.owner?.id);
+      return { status: 'ignored', message: 'No user associated with repository' };
     }
 
-    return { status: 'ignored', message: 'Event not handled' };
+    const prData = {
+      id: pr.id,
+      title: pr.title,
+      body: pr.body,
+      state: pr.state,
+      number: pr.number,
+      prDiff: await this.fetchPRDiff(
+        payload.repository.owner.login,
+        payload.repository.name,
+        pr.number,
+        githubId,
+      ),
+      head: pr.head
+        ? {
+            repo: pr.head.repo
+              ? {
+                  pushed_at: pr.head.repo.pushed_at,
+                  name: pr.head.repo.name,
+                   full_name:pr.head.repo.full_name,
+                  owner: pr.head.repo.owner ? { login: pr.head.repo.owner.login } : undefined,
+                }
+              : undefined,
+          }
+        : undefined,
+      user: pr.user ? { login: pr.user.login } : undefined,
+      reviewedStatus: 'pending',
+      githubId,
+    };
+
+    const savedPR = await this.userService.updatePR(pr.id, githubId, prData);
+    return { status: 'success', message: 'PR processed and saved', data: savedPR };
   }
+
+  return { status: 'ignored', message: 'Event not handled' };
+}
+
 
   async fetchPRDiff(owner: string, repoName: string, prNumber: number, githubId: string) {
     const user = await this.userService.findByGithubId(githubId);
@@ -250,15 +329,57 @@ export class AuthService {
     }
 
     const diffUrl = `https://api.github.com/repos/${owner}/${repoName}/pulls/${prNumber}/files`;
-    const diffResponse = await axios.get(diffUrl, {
-      headers: { Authorization: `token ${user.gitToken}` },
-    });
-
-    return diffResponse.data;
+    try {
+      const diffResponse = await axios.get(diffUrl, {
+        headers: { Authorization: `token ${user.gitToken}` },
+      });
+      return diffResponse.data;
+    } catch (error) {
+      console.error(`Failed to fetch diff for PR #${prNumber}:`, error.message);
+      return [];
+    }
   }
 
   async getGithubIdFromRepo(repo: any): Promise<string | null> {
-    const user = await this.userService.findByGithubId(repo.owner.id.toString());
+    const githubId = repo?.owner?.id?.toString();
+    const user = await this.userService.findByGithubId(githubId);
     return user ? user.githubId : null;
   }
-}
+
+  async getAllDevelopersSummary() {
+  const allPRs = await this.userService.findAllPRs();
+
+  if (!allPRs || allPRs.length === 0) {
+    return [];
+  }
+
+  const developerMap = new Map<string, { 
+    noOfPRs: number; 
+    projects: Set<string>; 
+  }>();
+
+  allPRs.forEach((pr) => {
+    const developer = pr?.head?.repo?.owner?.login;
+    const project = pr?.head?.repo?.name;
+
+    if (developer) {
+      if (!developerMap.has(developer)) {
+        developerMap.set(developer, { noOfPRs: 0, projects: new Set() });
+      }
+
+      const devData = developerMap.get(developer);
+      devData.noOfPRs += 1; 
+      if (project) devData.projects.add(project); 
+    }
+  });
+
+
+return Array.from(developerMap.entries()).map(([developer, data], index) => ({
+  id: index + 1,
+  developer,
+  noOfPRs: data.noOfPRs,
+  noOfProjects: data.projects.size,
+  projects: Array.from(data.projects), 
+}));
+
+  }}

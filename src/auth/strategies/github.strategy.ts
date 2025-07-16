@@ -6,19 +6,21 @@ import { AuthService } from '../auth.service';
 
 @Injectable()
 export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly configService: ConfigService,
-  ) {
-    super({
-      clientID: configService.get<string>('GITHUB_CLIENT_ID'),
-      clientSecret: configService.get<string>('GITHUB_CLIENT_SECRET'),
-      callbackURL: configService.get<string>('GITHUB_CALLBACK_URL'),
-      scope: ['user:email'],
-    });
-  }
+constructor(
+  private readonly authService: AuthService,
+  private readonly configService: ConfigService,
+) {
+  const githubConfig = {
+    clientID: configService.get<string>('GITHUB_CLIENT_ID'),
+    clientSecret: configService.get<string>('GITHUB_CLIENT_SECRET'),
+    callbackURL: configService.get<string>('GITHUB_CALLBACK_URL'),
+    scope: ['user:email', 'repo'],
+  };
+  super(githubConfig);
+}
 
   async validate(accessToken: string, refreshToken: string, profile: any) {
     return this.authService.validateGithubUser(profile, accessToken);
   }
 }
+ 
