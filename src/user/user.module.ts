@@ -1,19 +1,36 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
+import { PassportModule } from '@nestjs/passport';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { GithubStrategy } from '../auth/strategies/github.strategy';
+import { JwtStrategy } from '../auth/strategies/jwt.strategy';
+import { UserController } from './user.controller';
 import { UserService } from './user.service';
+import { MongooseModule } from '@nestjs/mongoose';
 import { User, UserSchema } from './schemas/user.schema';
-import { PullRequest, PullRequestSchema } from './schemas/pr.schema';
-import { ReviewWorker } from './worker/review.worker';
-
-
+import { PullRequestSchema } from './schemas/pr.schema';
+import { AuthService } from 'src/auth/auth.service';
 @Module({
   imports: [
-    MongooseModule.forFeature([
-      { name: User.name, schema: UserSchema },
-      { name: PullRequest.name, schema: PullRequestSchema },
-    ]),
+    ConfigModule,
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: async (configService: ConfigService) => ({
+        secret: configService.get<string>('JWT_SECRET') || 'default-secret',
+        signOptions: { expiresIn: '7d' },
+      }),
+    }),
+     MongooseModule.forFeature([{ name: 'User', schema: UserSchema }, { name: 'PullRequest', schema: PullRequestSchema }]),
   ],
-  providers: [UserService, ReviewWorker],
+  providers: [
+    AuthService,
+    UserService,
+    GithubStrategy,
+    JwtStrategy,
+  ],
+  controllers: [UserController],
   exports: [UserService],
 })
 export class UserModule {}
